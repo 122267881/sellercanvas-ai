@@ -2,6 +2,29 @@
 
 SellerCanvas AI 是面向跨境卖家的 AI 商品图与 Listing 交付平台。目标不是做一个展示 Demo，而是做成可以部署上线、可以承载真实业务流程的电商素材生产工具：从商品上传、AI 分析、Prompt 生成、平台合规适配、批量生图、Listing 文案，到导出交付与历史追踪形成完整闭环。
 
+## 2026-05-14 商用验收状态
+
+当前仓库已经完成可部署 SaaS 基线，并通过本地接口验收：
+
+- 客户端和开发者后台已经分离：客户访问 `/`，开发者/管理员访问 `/admin`。
+- 客户端不提供 API Key 或 AI Provider 配置入口，客户只负责注册、付费、消耗积分和生成交付物。
+- 管理后台提供客户、订阅支付、积分账户、AI 任务、AI 接口配置、对外 API Key、用量统计和审计日志。
+- 注册用户会获得试用积分；分析、生成、文案和导出会按任务扣积分。
+- 本地支付测试链路可完成订阅确认、发票记录、积分发放、生成和导出。
+- 发票按钮已经改为真实下载 HTML 发票，并带有用户权限校验。
+- Stripe Checkout 已写入 `userId`、`plan`、`paymentId` 和 `stripePriceId` metadata，便于 webhook 正确归属用户和发放积分。
+- 订阅管理接口支持本地测试模式；当生产环境写入 `stripeCustomerId` 后可跳转 Stripe Billing Portal。
+- OpenAI Provider 配置只在管理后台出现，API Key 保存在服务端本地 secrets 或环境变量中，不暴露给客户前端。
+- GitHub 最新代码地址：[https://github.com/122267881/sellercanvas-ai](https://github.com/122267881/sellercanvas-ai)
+
+上线前仍需要你配置真实生产资源：
+
+- 填写真实 `OPENAI_API_KEY` 后，才能验证真实图片分析和真实生图效果。
+- 填写 Stripe 真实密钥、Price ID 和 Webhook Secret 后，才能跑真实扣款和自动续费。
+- 使用 Docker/PostgreSQL 部署时设置 `DATABASE_URL` 并执行 `npm run prisma:migrate`。
+- 配置正式域名、HTTPS、反向代理和对象存储；当前本地模式仍使用 `data/` 和 `exports/`。
+- 若要把后台和客户站部署成完全不同域名，可在反向代理层把客户域名指向 `/`，管理域名指向 `/admin`。
+
 ## 产品定位
 
 一句话：让不会设计、不会提示词、不会 PS 的跨境卖家，也能快速生成高质量、平台适配、可直接用于 Listing 的商品图和文案。

@@ -461,7 +461,7 @@ function billingPage() {
     <section class="panel">
       <div class="section-head"><h2>支付记录与发票</h2><button class="secondary-btn" data-action="cancel-subscription">取消订阅</button></div>
       <div class="table-card">
-        ${(state.db.invoices || []).map((invoice) => `<article class="row-card"><div><strong>${h(invoice.plan)}</strong><span>${h(invoice.status)} · ${new Date(invoice.createdAt).toLocaleString()}</span></div><b>${invoice.amount} ${h(invoice.currency || "USD")}</b><button data-action="download-invoice" data-id="${invoice.id}">查看账单</button></article>`).join("") || `<div class="empty-card">暂无发票。</div>`}
+        ${(state.db.invoices || []).map((invoice) => `<article class="row-card"><div><strong>${h(invoice.plan)}</strong><span>${h(invoice.status)} · ${new Date(invoice.createdAt).toLocaleString()}</span></div><b>${invoice.amount} ${h(invoice.currency || "USD")}</b><a class="secondary-btn" href="/api/invoices/${invoice.id}/download" download>下载发票</a></article>`).join("") || `<div class="empty-card">暂无发票。</div>`}
       </div>
     </section>
   `;
@@ -548,7 +548,6 @@ async function handleAction(event) {
     if (action === "checkout") return checkout(el.dataset.plan);
     if (action === "manage-billing") return manageBilling();
     if (action === "cancel-subscription") return cancelSubscription();
-    if (action === "download-invoice") return showToast("发票已在账单记录中，后续可接入 PDF 模板导出。");
   } catch (error) {
     showToast(error.message);
   }
@@ -685,6 +684,10 @@ async function checkout(plan) {
 
 async function manageBilling() {
   const result = await api("/api/billing/manage", { method: "POST", body: "{}" });
+  if (result.portalUrl) {
+    location.href = result.portalUrl;
+    return;
+  }
   showToast(result.message);
 }
 

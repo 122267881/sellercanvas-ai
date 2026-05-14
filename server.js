@@ -461,6 +461,62 @@ function json(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function invoiceDownload(res, invoice, user) {
+  const issuedAt = new Date(invoice.createdAt).toLocaleString("zh-CN", { hour12: false });
+  const html = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>SellerCanvas AI Invoice ${escapeHtml(invoice.id)}</title>
+  <style>
+    body { font-family: Arial, "Microsoft YaHei", sans-serif; margin: 40px; color: #111827; }
+    .invoice { max-width: 760px; margin: 0 auto; border: 1px solid #e5e7eb; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    .muted { color: #667085; }
+    table { width: 100%; border-collapse: collapse; margin-top: 28px; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 12px; text-align: left; }
+    .total { font-size: 20px; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <main class="invoice">
+    <h1>SellerCanvas AI 发票</h1>
+    <p class="muted">Invoice ID: ${escapeHtml(invoice.id)}</p>
+    <p>客户：${escapeHtml(user.email || user.name || invoice.userId)}</p>
+    <p>开具时间：${escapeHtml(issuedAt)}</p>
+    <table>
+      <thead><tr><th>项目</th><th>状态</th><th>金额</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>${escapeHtml(invoice.plan || "SellerCanvas AI Subscription")}</td>
+          <td>${escapeHtml(invoice.status || "paid")}</td>
+          <td>${escapeHtml(invoice.currency || "USD")} ${Number(invoice.amount || 0).toFixed(2)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="total">合计：${escapeHtml(invoice.currency || "USD")} ${Number(invoice.amount || 0).toFixed(2)}</p>
+    <p class="muted">此文件由 SellerCanvas AI 自动生成，可作为本地测试账单与交付记录。正式上线后可替换为 Stripe PDF Invoice 或企业税务发票模板。</p>
+  </main>
+</body>
+</html>`;
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "content-disposition": `attachment; filename="sellercanvas-invoice-${invoice.id}.html"`,
+    "cache-control": "no-store"
+  });
+  res.end(html);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[char]));
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -1437,6 +1493,15 @@ async function api(req, res, pathname) {
       return json(res, 404, { error: "API endpoint not found" });
     }
 
+    if (method === "GET" && parts[0] === "api" && parts[1] === "invoices" && parts[2] && parts[3] === "download") {
+      if (!requireUser(res, user)) return;
+      const invoice = (db.invoices || []).find((item) => item.id === parts[2]);
+      if (!invoice) return json(res, 404, { error: "Invoice not found" });
+      if (user.role !== "admin" && invoice.userId !== user.id) return json(res, 403, { error: "Invoice access denied" });
+      const owner = db.users.find((item) => item.id === invoice.userId) || user;
+      return invoiceDownload(res, invoice, owner);
+    }
+
     if (method === "GET" && pathname === "/api/admin/overview") {
       if (!requireAdmin(res, user)) return;
       const ops = await buildAdminOpsData(db);
@@ -1723,8 +1788,16 @@ async function api(req, res, pathname) {
           cancel_url: `${process.env.PUBLIC_APP_URL || "http://localhost:4173"}/#/pricing`,
           "line_items[0][price]": plan.stripePriceId,
           "line_items[0][quantity]": "1",
-          client_reference_id: payment.id,
-          customer_email: user.email
+          client_reference_id: user.id,
+          customer_email: user.email,
+          "metadata[userId]": user.id,
+          "metadata[plan]": plan.id,
+          "metadata[paymentId]": payment.id,
+          "metadata[stripePriceId]": plan.stripePriceId,
+          "subscription_data[metadata][userId]": user.id,
+          "subscription_data[metadata][plan]": plan.id,
+          "subscription_data[metadata][paymentId]": payment.id,
+          "subscription_data[metadata][stripePriceId]": plan.stripePriceId
         });
         const stripe = await fetch("https://api.stripe.com/v1/checkout/sessions", {
           method: "POST",
@@ -1773,7 +1846,27 @@ async function api(req, res, pathname) {
 
     if (method === "POST" && pathname === "/api/billing/manage") {
       if (!requireUser(res, user)) return;
-      return json(res, 200, { mode: process.env.STRIPE_SECRET_KEY ? "stripe-config-required" : "local-test", message: "订阅管理已启用：可升级、降级或取消。Stripe Portal 可在配置 customer id 后接入。", subscription: user.subscription });
+      if (process.env.STRIPE_SECRET_KEY && user.stripeCustomerId) {
+        const params = new URLSearchParams({
+          customer: user.stripeCustomerId,
+          return_url: `${process.env.PUBLIC_APP_URL || "http://localhost:4173"}/#/billing`
+        });
+        const portal = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+          method: "POST",
+          headers: { authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`, "content-type": "application/x-www-form-urlencoded" },
+          body: params
+        });
+        const payload = await portal.json().catch(() => ({}));
+        if (!portal.ok) return json(res, 400, { error: payload.error?.message || "Stripe billing portal failed" });
+        return json(res, 200, { mode: "stripe-portal", portalUrl: payload.url, subscription: user.subscription });
+      }
+      return json(res, 200, {
+        mode: process.env.STRIPE_SECRET_KEY ? "stripe-pending-customer" : "local-test",
+        message: process.env.STRIPE_SECRET_KEY
+          ? "已启用 Stripe 支付。客户完成一次真实订阅并写入 Stripe Customer 后，可跳转到 Stripe Portal 管理订阅。当前仍可在本页取消订阅。"
+          : "本地测试模式已启用：可以在当前页面升级、降级或取消订阅。",
+        subscription: user.subscription
+      });
     }
 
     if (method === "POST" && pathname === "/api/subscription/cancel") {
