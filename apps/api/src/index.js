@@ -15,6 +15,7 @@ module.exports = {
   ...require("./jobs/jobRepository"),
   ...require("./jobs/prismaJobRepository"),
   ...require("./jobs/jobService"),
+  ...require("./prisma/runtime"),
   ...require("./routes/credits"),
   ...require("./routes/jobs"),
   ...require("./routes/stripe")

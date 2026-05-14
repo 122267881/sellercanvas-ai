@@ -20,9 +20,13 @@ async function verifyCreditAdapter(prisma) {
   await creditService.consumeReserved("user_prisma", 80, { jobId: "job_prisma" });
 
   assertBalance(await creditService.getBalance("user_prisma"), { balance: 20, reserved: 0, available: 20 });
+  const accounts = await repository.listAccounts();
+  assert(accounts.some((account) => account.userId === "user_prisma" && account.available === 20), "Prisma credit adapter should list accounts");
   const ledger = await repository.listLedger("user_prisma");
   assert(ledger.length === 3, "Prisma credit ledger should persist three entries");
   assert(ledger[0].type === "GRANT" && ledger[2].type === "CONSUME", "Prisma credit ledger order should be stable");
+  const allLedger = await repository.listAllLedger();
+  assert(allLedger.length >= 3, "Prisma credit adapter should list all ledger entries");
 }
 
 async function verifyJobAdapter(prisma) {
@@ -156,6 +160,9 @@ function createFakePrisma() {
         if (!account) throw notFoundError();
         Object.assign(account, clone(data), { updatedAt: now() });
         return clone(account);
+      },
+      async findMany({ orderBy } = {}) {
+        return sortRows(tables.creditAccounts, orderBy).map(clone);
       }
     },
     creditLedger: {
@@ -164,8 +171,17 @@ function createFakePrisma() {
         tables.creditLedgers.push(record);
         return clone(record);
       },
-      async findMany({ where, orderBy } = {}) {
-        return sortRows(tables.creditLedgers.filter((item) => matchesWhere(item, where)), orderBy).map(clone);
+      async findMany({ where, include, orderBy, take } = {}) {
+        const rows = sortRows(tables.creditLedgers.filter((item) => matchesWhere(item, where)), orderBy)
+          .slice(0, take || undefined)
+          .map(clone);
+        if (include?.account) {
+          return rows.map((row) => ({
+            ...row,
+            account: { userId: tables.creditAccounts.find((account) => account.id === row.creditAccountId)?.userId }
+          }));
+        }
+        return rows;
       }
     },
     generationJob: {

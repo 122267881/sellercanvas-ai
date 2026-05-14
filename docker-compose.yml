@@ -1,12 +1,38 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sellercanvas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sellercanvas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sellercanvas}
+      POSTGRES_DB: ${POSTGRES_DB:-sellercanvas}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sellercanvas} -d ${POSTGRES_DB:-sellercanvas}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   sellercanvas:
     build: .
     container_name: sellercanvas-ai
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "${PORT:-4173}:4173"
     env_file:
       - .env
+    environment:
+      PERSISTENCE: ${PERSISTENCE:-prisma}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://sellercanvas:sellercanvas@postgres:5432/sellercanvas}
+    command: ["sh", "-c", "npx prisma migrate deploy && node server.js"]
     volumes:
       - ./data:/app/data
       - ./exports:/app/exports
+
+volumes:
+  postgres-data:

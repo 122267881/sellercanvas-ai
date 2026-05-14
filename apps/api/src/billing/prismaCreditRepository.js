@@ -89,12 +89,30 @@ function createPrismaCreditRepository({ prisma }) {
     return entries.map((entry) => mapLedgerEntry(entry, account.userId));
   }
 
+  async function listAccounts() {
+    const accounts = await prisma.creditAccount.findMany({
+      orderBy: { updatedAt: "desc" }
+    });
+    return accounts.map(mapAccount);
+  }
+
+  async function listAllLedger() {
+    const entries = await prisma.creditLedger.findMany({
+      include: { account: { select: { userId: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 500
+    });
+    return entries.map((entry) => mapLedgerEntry(entry, entry.account?.userId));
+  }
+
   return {
     getAccountByUserId,
     createAccount,
     saveAccount,
     appendLedger,
-    listLedger
+    listLedger,
+    listAccounts,
+    listAllLedger
   };
 }
 

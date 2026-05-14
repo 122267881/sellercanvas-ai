@@ -3,7 +3,7 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
-const { ApiError, createApiV2HttpHandler, createAppContext } = require("./apps/api/src");
+const { ApiError, createApiV2HttpHandler, createAppContext, createRuntimePrismaClient } = require("./apps/api/src");
 const { JOB_TYPES } = require("./workers/ai/src/jobTypes");
 
 const root = __dirname;
@@ -11,9 +11,11 @@ const port = Number(process.env.PORT || 4173);
 const dataDir = path.join(root, "data");
 const exportDir = path.join(root, "exports");
 const dbFile = path.join(dataDir, "db.json");
+const providerSecretsFile = path.join(dataDir, "provider-secrets.json");
 const sessionCookie = "sc_session";
 const rateBuckets = new Map();
-const apiV2Context = createAppContext();
+const runtimePrisma = createRuntimePrismaClient();
+const apiV2Context = createAppContext({ prisma: runtimePrisma?.client || null });
 const apiV2Handler = createApiV2HttpHandler({
   context: apiV2Context,
   authenticate: async (req) => {
@@ -501,8 +503,26 @@ function getPlatform(platformId) {
   return platforms.find((platform) => platform.id === platformId) || platforms[0];
 }
 
+function loadProviderSecrets() {
+  try {
+    if (!fs.existsSync(providerSecretsFile)) return {};
+    return JSON.parse(fs.readFileSync(providerSecretsFile, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+async function saveProviderSecrets(secrets) {
+  await fsp.mkdir(dataDir, { recursive: true });
+  await fsp.writeFile(providerSecretsFile, JSON.stringify(secrets, null, 2), "utf8");
+}
+
+function getOpenAIKey() {
+  return process.env.OPENAI_API_KEY || loadProviderSecrets().openaiApiKey || "";
+}
+
 function providerStatus(db) {
-  const openaiKey = Boolean(process.env.OPENAI_API_KEY);
+  const openaiKey = Boolean(getOpenAIKey());
   const wantsOpenAI = db.settings.aiProvider === "openai";
   const imageModel = wantsOpenAI && (!db.settings.imageModel || db.settings.imageModel === "local-svg-renderer")
     ? "gpt-image-2"
@@ -514,7 +534,7 @@ function providerStatus(db) {
     provider: db.settings.aiProvider,
     mode: wantsOpenAI && openaiKey ? "api" : "local-fallback",
     ready: wantsOpenAI ? openaiKey : true,
-    keySource: openaiKey ? "OPENAI_API_KEY 环境变量" : "未配置",
+    keySource: process.env.OPENAI_API_KEY ? "OPENAI_API_KEY 环境变量" : openaiKey ? "后台本地密钥文件" : "未配置",
     baseUrl: db.settings.providerBaseUrl || defaultSettings.providerBaseUrl,
     textModel: db.settings.textModel || defaultSettings.textModel,
     imageModel,
@@ -550,14 +570,15 @@ function extractJson(text) {
 
 async function callOpenAIText(db, input) {
   const status = providerStatus(db);
-  if (status.provider !== "openai" || !process.env.OPENAI_API_KEY) {
+  const openaiKey = getOpenAIKey();
+  if (status.provider !== "openai" || !openaiKey) {
     throw new Error("OpenAI provider is not configured");
   }
   const response = await fetch(`${status.baseUrl.replace(/\/$/, "")}/responses`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+      authorization: `Bearer ${openaiKey}`
     },
     body: JSON.stringify({
       model: status.textModel,
@@ -572,7 +593,8 @@ async function callOpenAIText(db, input) {
 
 async function callOpenAIImage(db, prompt, platformId) {
   const status = providerStatus(db);
-  if (status.provider !== "openai" || !process.env.OPENAI_API_KEY) {
+  const openaiKey = getOpenAIKey();
+  if (status.provider !== "openai" || !openaiKey) {
     throw new Error("OpenAI image provider is not configured");
   }
   const platform = getPlatform(platformId);
@@ -581,7 +603,7 @@ async function callOpenAIImage(db, prompt, platformId) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+      authorization: `Bearer ${openaiKey}`
     },
     body: JSON.stringify({
       model: status.imageModel || "gpt-image-2",
@@ -1018,9 +1040,9 @@ async function buildAdminOpsData(db) {
     };
   }));
   const ledger = typeof apiV2Context.repositories.creditRepository.listAllLedger === "function"
-    ? apiV2Context.repositories.creditRepository.listAllLedger()
+    ? await apiV2Context.repositories.creditRepository.listAllLedger()
     : [];
-  const jobs = apiV2Context.repositories.jobRepository.list().sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const jobs = (await apiV2Context.repositories.jobRepository.list()).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const jobCounts = jobs.reduce((acc, job) => {
     acc[job.status] = (acc[job.status] || 0) + 1;
     return acc;
@@ -1043,6 +1065,161 @@ async function buildAdminOpsData(db) {
       total: jobs.length
     }
   };
+}
+
+async function syncPrismaLegacySnapshot(db) {
+  const prisma = apiV2Context.prisma;
+  if (!prisma) return;
+
+  for (const user of db.users || []) {
+    await upsertPrismaUser(prisma, user);
+  }
+  for (const project of db.projects || []) {
+    await upsertPrismaProject(prisma, project, db);
+  }
+  for (const subscription of db.subscriptions || []) {
+    await upsertPrismaSubscription(prisma, subscription);
+  }
+  for (const payment of db.payments || []) {
+    await upsertPrismaPayment(prisma, payment);
+  }
+  for (const invoice of db.invoices || []) {
+    await upsertPrismaInvoice(prisma, invoice);
+  }
+}
+
+async function upsertPrismaUser(prisma, user) {
+  if (!user?.id || !user.email) return;
+  const data = {
+    email: String(user.email).toLowerCase(),
+    name: user.name || String(user.email).split("@")[0],
+    role: user.role === "admin" ? "ADMIN" : "CUSTOMER",
+    passwordHash: user.passwordHash || null
+  };
+  await prisma.user.upsert({
+    where: { id: user.id },
+    create: { id: user.id, ...data, createdAt: parseDate(user.createdAt) || undefined },
+    update: data
+  });
+}
+
+async function upsertPrismaProject(prisma, project, db) {
+  const ownerId = project?.ownerId || project?.userId;
+  if (!project?.id || !ownerId || !(db.users || []).some((user) => user.id === ownerId)) return;
+  const data = {
+    userId: ownerId,
+    name: project.name || "Untitled Listing Kit",
+    platform: project.platform || "amazon",
+    status: mapProjectStatus(project.status),
+    product: {
+      ...(project.product || {}),
+      uploadName: project.uploadName || null,
+      legacyImageStoredInJson: Boolean(project.image)
+    }
+  };
+  await prisma.project.upsert({
+    where: { id: project.id },
+    create: { id: project.id, ...data, createdAt: parseDate(project.createdAt) || undefined, updatedAt: parseDate(project.updatedAt) || undefined },
+    update: data
+  });
+}
+
+async function upsertPrismaSubscription(prisma, subscription) {
+  if (!subscription?.id || !subscription.userId) return;
+  await prisma.subscription.upsert({
+    where: { id: subscription.id },
+    create: {
+      id: subscription.id,
+      userId: subscription.userId,
+      plan: subscription.plan || "starter",
+      status: mapSubscriptionStatus(subscription.status),
+      provider: subscription.provider || "stripe",
+      currentPeriodEnd: parseDate(subscription.renewsAt),
+      createdAt: parseDate(subscription.createdAt) || undefined
+    },
+    update: {
+      plan: subscription.plan || "starter",
+      status: mapSubscriptionStatus(subscription.status),
+      provider: subscription.provider || "stripe",
+      currentPeriodEnd: parseDate(subscription.renewsAt)
+    }
+  });
+}
+
+async function upsertPrismaPayment(prisma, payment) {
+  if (!payment?.id || !payment.userId) return;
+  await prisma.payment.upsert({
+    where: { id: payment.id },
+    create: {
+      id: payment.id,
+      userId: payment.userId,
+      provider: payment.provider || "stripe",
+      providerRef: payment.externalId || null,
+      plan: payment.plan || null,
+      amount: Number(payment.amount || 0),
+      currency: payment.currency || "USD",
+      status: mapPaymentStatus(payment.status),
+      createdAt: parseDate(payment.createdAt) || undefined
+    },
+    update: {
+      provider: payment.provider || "stripe",
+      providerRef: payment.externalId || null,
+      plan: payment.plan || null,
+      amount: Number(payment.amount || 0),
+      currency: payment.currency || "USD",
+      status: mapPaymentStatus(payment.status)
+    }
+  });
+}
+
+async function upsertPrismaInvoice(prisma, invoice) {
+  if (!invoice?.id || !invoice.userId) return;
+  await prisma.invoice.upsert({
+    where: { id: invoice.id },
+    create: {
+      id: invoice.id,
+      userId: invoice.userId,
+      paymentId: invoice.paymentId || null,
+      plan: invoice.plan || null,
+      amount: Number(invoice.amount || 0),
+      currency: invoice.currency || "USD",
+      status: mapInvoiceStatus(invoice.status),
+      createdAt: parseDate(invoice.createdAt) || undefined
+    },
+    update: {
+      paymentId: invoice.paymentId || null,
+      plan: invoice.plan || null,
+      amount: Number(invoice.amount || 0),
+      currency: invoice.currency || "USD",
+      status: mapInvoiceStatus(invoice.status)
+    }
+  });
+}
+
+function mapProjectStatus(status) {
+  const map = { analyzed: "ANALYZED", generated: "GENERATED", exported: "EXPORTED", archived: "ARCHIVED" };
+  return map[String(status || "").toLowerCase()] || "DRAFT";
+}
+
+function mapSubscriptionStatus(status) {
+  const map = { trialing: "TRIALING", active: "ACTIVE", past_due: "PAST_DUE", canceled: "CANCELED", incomplete: "INCOMPLETE" };
+  return map[String(status || "").toLowerCase()] || "INCOMPLETE";
+}
+
+function mapPaymentStatus(status) {
+  const map = { pending: "PENDING", paid: "PAID", failed: "FAILED", refunded: "REFUNDED" };
+  return map[String(status || "").toLowerCase()] || "PENDING";
+}
+
+function mapInvoiceStatus(status) {
+  const map = { open: "OPEN", paid: "PAID", "paid-local": "PAID", void: "VOID", uncollectible: "UNCOLLECTIBLE" };
+  return map[String(status || "").toLowerCase()] || "OPEN";
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 async function syncCreditAccountsFromLegacySubscriptions(db) {
@@ -1098,6 +1275,7 @@ async function runMeteredJob(user, projectId, type, work) {
 async function api(req, res, pathname) {
   try {
     const db = await loadDb();
+    await syncPrismaLegacySnapshot(db);
     await syncCreditAccountsFromLegacySubscriptions(db);
     const method = req.method || "GET";
     const parts = pathname.split("/").filter(Boolean);
@@ -1131,6 +1309,7 @@ async function api(req, res, pathname) {
         lastLoginAt: null
       };
       db.users.unshift(created);
+      if (apiV2Context.prisma) await upsertPrismaUser(apiV2Context.prisma, created);
       await safeGrantCredits(created.id, created.subscription.credits, {
         source: "trial",
         reason: "register_trial"
@@ -1215,6 +1394,7 @@ async function api(req, res, pathname) {
           lastLoginAt: null
         };
         db.users.unshift(oauthUser);
+        if (apiV2Context.prisma) await upsertPrismaUser(apiV2Context.prisma, oauthUser);
         await safeGrantCredits(oauthUser.id, oauthUser.subscription.credits, {
           source: "trial",
           reason: "oauth_register_trial",
@@ -1282,6 +1462,58 @@ async function api(req, res, pathname) {
         quota: { used: db.settings.usedCredits, total: db.settings.monthlyQuota }
       });
     }
+
+    if (method === "GET" && pathname === "/api/admin/provider-config") {
+      if (!requireAdmin(res, user)) return;
+      const status = providerStatus(db);
+      return json(res, 200, {
+        config: {
+          aiProvider: db.settings.aiProvider,
+          providerBaseUrl: db.settings.providerBaseUrl || defaultSettings.providerBaseUrl,
+          textModel: db.settings.textModel || defaultSettings.textModel,
+          imageModel: db.settings.imageModel || defaultSettings.imageModel,
+          hasOpenAIKey: Boolean(getOpenAIKey()),
+          keySource: status.keySource
+        },
+        provider: status
+      });
+    }
+
+    if (method === "POST" && pathname === "/api/admin/provider-config") {
+      if (!requireAdmin(res, user)) return;
+      const body = await readBody(req);
+      const next = body.config || {};
+      const allowedProvider = next.aiProvider === "openai" ? "openai" : "local-commercial";
+      db.settings.aiProvider = allowedProvider;
+      db.settings.providerMode = allowedProvider === "openai" ? "api" : "local-fallback";
+      db.settings.providerBaseUrl = String(next.providerBaseUrl || defaultSettings.providerBaseUrl).trim();
+      db.settings.textModel = String(next.textModel || defaultSettings.textModel).trim();
+      db.settings.imageModel = String(next.imageModel || (allowedProvider === "openai" ? "gpt-image-2" : defaultSettings.imageModel)).trim();
+      db.settings.copyModel = allowedProvider === "openai" ? db.settings.textModel : defaultSettings.copyModel;
+
+      const openaiApiKey = String(next.openaiApiKey || "").trim();
+      if (openaiApiKey) {
+        const secrets = loadProviderSecrets();
+        secrets.openaiApiKey = openaiApiKey;
+        await saveProviderSecrets(secrets);
+      }
+
+      log(db, "settings", `更新 AI 接口配置：${allowedProvider}`);
+      await saveDb(db);
+      return json(res, 200, {
+        ok: true,
+        config: {
+          aiProvider: db.settings.aiProvider,
+          providerBaseUrl: db.settings.providerBaseUrl,
+          textModel: db.settings.textModel,
+          imageModel: db.settings.imageModel,
+          hasOpenAIKey: Boolean(getOpenAIKey()),
+          keySource: providerStatus(db).keySource
+        },
+        provider: providerStatus(db)
+      });
+    }
+
     if (method === "POST" && pathname === "/api/admin/test-provider") {
       if (!requireAdmin(res, user)) return;
       const status = providerStatus(db);
@@ -1301,6 +1533,7 @@ async function api(req, res, pathname) {
       const template = templates.find((item) => item.id === body.templateId) || templates[0];
       const project = buildProject({ ...template, ...(body.product || {}), ownerId: user.id }, body.name || "Untitled Listing Kit");
       db.projects.unshift(project);
+      if (apiV2Context.prisma) await upsertPrismaProject(apiV2Context.prisma, project, db);
       log(db, "project", `创建项目：${project.name}`);
       await saveDb(db);
       return json(res, 201, { project });
@@ -1440,6 +1673,7 @@ async function api(req, res, pathname) {
       if (!template) return json(res, 404, { error: "Template not found" });
       const project = buildProject({ ...template, ownerId: user.id }, template.name);
       db.projects.unshift(project);
+      if (apiV2Context.prisma) await upsertPrismaProject(apiV2Context.prisma, project, db);
       log(db, "template", `从模板创建项目：${template.name}`);
       await saveDb(db);
       return json(res, 200, { project });
@@ -1481,6 +1715,7 @@ async function api(req, res, pathname) {
       if (!plan) return json(res, 404, { error: "Plan not found" });
       const payment = { id: id("pay"), userId: user.id, plan: plan.id, amount: plan.price, currency: plan.currency, provider: body.provider || "stripe", status: "pending", createdAt: now(), confirmedAt: null };
       db.payments.unshift(payment);
+      if (apiV2Context.prisma) await upsertPrismaPayment(apiV2Context.prisma, payment);
       if (payment.provider === "stripe" && process.env.STRIPE_SECRET_KEY && plan.stripePriceId) {
         const params = new URLSearchParams({
           mode: "subscription",
@@ -1521,6 +1756,11 @@ async function api(req, res, pathname) {
       db.subscriptions = db.subscriptions.filter((item) => item.userId !== user.id || item.status !== "active");
       db.subscriptions.unshift(subscription);
       db.invoices.unshift({ id: id("inv"), userId: user.id, paymentId: payment.id, plan: plan.id, amount: payment.amount, currency: payment.currency, status: "paid", createdAt: now() });
+      if (apiV2Context.prisma) {
+        await upsertPrismaPayment(apiV2Context.prisma, payment);
+        await upsertPrismaSubscription(apiV2Context.prisma, subscription);
+        await upsertPrismaInvoice(apiV2Context.prisma, db.invoices[0]);
+      }
       await safeGrantCredits(user.id, plan.credits, {
         source: "subscription",
         plan: plan.id,

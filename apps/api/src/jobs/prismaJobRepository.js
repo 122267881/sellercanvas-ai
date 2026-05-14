@@ -10,11 +10,13 @@ function createPrismaJobRepository({ prisma }) {
 
     const created = await prisma.generationJob.create({
       data: {
+        userId: job.userId,
         projectId: job.projectId,
         type: job.type,
         status: job.status || "QUEUED",
         provider: job.provider || null,
         model: job.model || null,
+        creditOperation: job.creditOperation || null,
         creditAmount: job.creditAmount,
         input: job.input || {},
         output: job.output || null,
@@ -65,7 +67,7 @@ function createPrismaJobRepository({ prisma }) {
 }
 
 function projectUserInclude() {
-  return { project: { select: { userId: true } } };
+  return { project: { select: { userId: true } }, user: { select: { id: true } } };
 }
 
 function normalizePatch(patch = {}) {
@@ -73,6 +75,7 @@ function normalizePatch(patch = {}) {
     "status",
     "provider",
     "model",
+    "creditOperation",
     "output",
     "error",
     "retryCount",
@@ -88,7 +91,7 @@ function normalizePatch(patch = {}) {
 
 function normalizeFilters(filters = {}) {
   const where = {};
-  for (const key of ["projectId", "status", "type"]) {
+  for (const key of ["userId", "projectId", "status", "type"]) {
     if (filters[key] !== undefined && filters[key] !== null) where[key] = filters[key];
   }
   return where;
@@ -97,7 +100,7 @@ function normalizeFilters(filters = {}) {
 function mapJob(job, fallbackUserId) {
   return {
     id: job.id,
-    userId: job.userId || job.project?.userId || fallbackUserId,
+    userId: job.userId || job.user?.id || job.project?.userId || fallbackUserId,
     projectId: job.projectId,
     type: job.type,
     status: job.status,

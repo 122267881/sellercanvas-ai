@@ -1,6 +1,7 @@
 # Runtime data
 data/
 exports/
+data/provider-secrets.json
 
 # Environment files
 .env

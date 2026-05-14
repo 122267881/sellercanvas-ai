@@ -39,6 +39,10 @@ function createAppContext(options = {}) {
   });
 
   return {
+    prisma,
+    persistence: {
+      mode: prisma ? "prisma" : "memory"
+    },
     plans,
     repositories: {
       creditRepository,

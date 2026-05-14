@@ -17,8 +17,8 @@ const adminRoutes = [
   { id: "subscriptions", label: "订阅支付" },
   { id: "credits", label: "积分账户" },
   { id: "jobs", label: "AI任务" },
-  { id: "api", label: "API管理" },
-  { id: "providers", label: "Provider配置" },
+  { id: "providers", label: "AI接口配置" },
+  { id: "api", label: "对外API Key" },
   { id: "usage", label: "用量统计" },
   { id: "logs", label: "审计日志" }
 ];
@@ -125,8 +125,8 @@ function renderAdmin() {
     subscriptions: subscriptionsPage,
     credits: creditsPage,
     jobs: jobsPage,
-    api: apiPage,
-    providers: providersPage,
+    api: developerApiKeyPage,
+    providers: aiProviderConfigPage,
     usage: usagePage,
     logs: logsPage
   };
@@ -265,10 +265,10 @@ function jobsPage() {
   `;
 }
 
-function apiPage() {
+function developerApiKeyPage() {
   return `
     <div class="page-head">
-      <div><h1>API管理</h1><p class="subhead">仅开发者后台可配置 API Key。客户站不会出现 API 配置入口。</p></div>
+      <div><h1>对外 API Key</h1><p class="subhead">这里生成的是客户或系统调用 SellerCanvas 对外接口的 Key，不是 OpenAI/生图接口配置。</p></div>
       <button class="generate-btn" data-admin-action="create-api-key">生成 API Key</button>
     </div>
     <section class="panel">
@@ -292,14 +292,44 @@ Rate limit: 60 requests / minute / key</pre>
   `;
 }
 
-function providersPage() {
+function aiProviderConfigPage() {
   const p = adminState.data.provider;
   return `
     <div class="page-head">
-      <div><h1>Provider配置</h1><p class="subhead">外部 AI、支付和 OAuth 配置只存在于管理后台，不出现在客户站。</p></div>
-      <button class="secondary-btn" data-admin-action="test-provider">测试 Provider</button>
+      <div><h1>AI 接口配置</h1><p class="subhead">这里配置图片分析、Prompt 生成、Listing 文案和生图要调用的模型接口。客户站不会看到这些密钥。</p></div>
+      <div class="head-actions">
+        <button class="secondary-btn" data-admin-action="test-provider">测试接口</button>
+        <button class="generate-btn" data-admin-action="save-provider-config">保存配置</button>
+      </div>
     </div>
     <section class="panel">
+      <form class="form-grid" data-form="provider-config">
+        <label>接口模式
+          <select name="aiProvider">
+            <option value="local-commercial" ${p.provider !== "openai" ? "selected" : ""}>本地备用模式</option>
+            <option value="openai" ${p.provider === "openai" ? "selected" : ""}>OpenAI API</option>
+          </select>
+        </label>
+        <label>OpenAI API Key
+          <input name="openaiApiKey" type="password" placeholder="${p.ready ? "已配置，留空表示不修改" : "粘贴 sk-... API Key"}" autocomplete="off">
+        </label>
+        <label>Base URL
+          <input name="providerBaseUrl" value="${h(p.baseUrl || "https://api.openai.com/v1")}">
+        </label>
+        <label>文本/分析模型
+          <input name="textModel" value="${h(p.textModel || "gpt-5.5")}">
+        </label>
+        <label>生图模型
+          <input name="imageModel" value="${h(p.imageModel || "gpt-image-2")}">
+        </label>
+        <label>当前状态
+          <input value="${h(p.ready ? "可用" : "未配置")}" readonly>
+        </label>
+      </form>
+      <div class="empty-card ${p.ready ? "" : "warn"}">Key 来源：${h(p.keySource)}${p.fallbackReason ? ` · ${h(p.fallbackReason)}` : ""}</div>
+    </section>
+    <section class="panel">
+      <div class="section-head"><h2>当前生效配置</h2></div>
       <div class="kv-list admin-kv">
         <div><span>Provider</span><b>${h(p.provider)}</b></div>
         <div><span>模式</span><b>${h(p.mode)}</b></div>
@@ -308,7 +338,6 @@ function providersPage() {
         <div><span>文本模型</span><b>${h(p.textModel)}</b></div>
         <div><span>生图模型</span><b>${h(p.imageModel)}</b></div>
       </div>
-      ${p.fallbackReason ? `<div class="empty-card warn">${h(p.fallbackReason)}</div>` : ""}
     </section>
   `;
 }
@@ -378,12 +407,25 @@ async function handleAdminAction(event) {
       showToast(result.ok ? `Provider 可用：${result.provider.mode}` : "Provider 不可用");
       return;
     }
+    if (action === "save-provider-config") return saveProviderConfig();
     if (action === "create-api-key") return createAdminApiKey();
     if (action === "revoke-api-key") return revokeAdminApiKey(event.currentTarget.dataset.id);
     if (action === "export-csv") exportCsv();
   } catch (error) {
     showToast(error.message);
   }
+}
+
+async function saveProviderConfig() {
+  const form = document.querySelector("[data-form='provider-config']");
+  const values = Object.fromEntries(new FormData(form).entries());
+  const result = await api("/api/admin/provider-config", {
+    method: "POST",
+    body: JSON.stringify({ config: values })
+  });
+  adminState.data.provider = result.provider;
+  showToast("AI 接口配置已保存");
+  renderAdmin();
 }
 
 async function createAdminApiKey() {

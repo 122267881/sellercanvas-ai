@@ -25,6 +25,7 @@ model User {
   creditAccounts CreditAccount[]
   apiKeys        ApiKey[]
   apiUsage       ApiUsage[]
+  generationJobs GenerationJob[]
   auditLogs      AdminAuditLog[] @relation("AdminActor")
 
   @@map("users")
@@ -276,23 +277,29 @@ model PromptVersion {
 
 model GenerationJob {
   id           String           @id @default(cuid())
-  projectId    String
+  userId       String?
+  projectId    String?
   type         GenerationType
   status       JobStatus        @default(QUEUED)
   provider     String?
   model        String?
+  creditOperation String?
   creditAmount Int
   input        Json
   output       Json?
   error        String?
   retryCount   Int              @default(0)
+  succeededAt  DateTime?
+  failedAt     DateTime?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
-  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user         User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  project      Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   ledger       CreditLedger[]
   assets       GeneratedAsset[]
 
   @@index([projectId, status])
+  @@index([userId, status])
   @@map("generation_jobs")
 }
 
@@ -412,6 +419,7 @@ enum TeamRole {
 }
 
 enum SubscriptionStatus {
+  TRIALING
   ACTIVE
   PAST_DUE
   CANCELED

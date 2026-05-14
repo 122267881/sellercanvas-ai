@@ -6,12 +6,19 @@
   "scripts": {
     "start": "node server.js",
     "prod": "node server.js",
-    "check": "node --check server.js && node --check app.js && node --check admin.js && node --check packages/shared/src/platforms.js && node --check packages/shared/src/creditPricing.js && node --check packages/billing/src/creditLedger.js && node --check packages/ai-core/src/promptDoctrine.js && node scripts/check-api.js && node scripts/check-prisma-adapters.js && node scripts/check-api-routes.js && node scripts/check-api-v2-http.js",
+    "check": "node --check server.js && node --check app.js && node --check admin.js && node --check packages/shared/src/platforms.js && node --check packages/shared/src/creditPricing.js && node --check packages/billing/src/creditLedger.js && node --check packages/ai-core/src/promptDoctrine.js && node scripts/check-api.js && node scripts/check-prisma-adapters.js && node scripts/check-prisma-runtime.js && node scripts/check-api-routes.js && node scripts/check-api-v2-http.js",
     "check:api": "node scripts/check-api.js",
     "check:api-routes": "node scripts/check-api-routes.js",
     "check:api-v2-http": "node scripts/check-api-v2-http.js",
+    "check:prisma-runtime": "node scripts/check-prisma-runtime.js",
     "check:prisma-adapters": "node scripts/check-prisma-adapters.js",
-    "check:architecture": "node scripts/check-architecture.js"
+    "check:architecture": "node scripts/check-architecture.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@prisma/client": "7.8.0",
+    "prisma": "7.8.0"
   },
   "keywords": [
     "ecommerce",
