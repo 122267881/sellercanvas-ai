@@ -1,0 +1,7 @@
+{
+  "name": "@sellercanvas/billing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/creditLedger.js"
+}

@@ -1,0 +1,12 @@
+services:
+  sellercanvas:
+    build: .
+    container_name: sellercanvas-ai
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4173}:4173"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./exports:/app/exports

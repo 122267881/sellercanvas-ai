@@ -1,0 +1,468 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  name           String
+  role           UserRole        @default(CUSTOMER)
+  passwordHash   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  sessions       Session[]
+  oauthAccounts  OAuthAccount[]
+  memberships    TeamMember[]
+  projects       Project[]
+  subscriptions  Subscription[]
+  payments       Payment[]
+  invoices       Invoice[]
+  creditAccounts CreditAccount[]
+  apiKeys        ApiKey[]
+  apiUsage       ApiUsage[]
+  auditLogs      AdminAuditLog[] @relation("AdminActor")
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model OAuthAccount {
+  id             String   @id @default(cuid())
+  userId         String
+  provider       String
+  providerUserId String
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@map("oauth_accounts")
+}
+
+model Team {
+  id        String       @id @default(cuid())
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  members   TeamMember[]
+  projects  Project[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      TeamRole @default(MEMBER)
+  createdAt DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String
+  plan                 String
+  status               SubscriptionStatus
+  provider             String             @default("stripe")
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String
+  provider        String        @default("stripe")
+  providerEventId String?       @unique
+  providerRef     String?       @unique
+  plan            String?
+  amount          Int
+  currency        String        @default("USD")
+  status          PaymentStatus
+  createdAt       DateTime      @default(now())
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoices        Invoice[]
+  creditLedger    CreditLedger[]
+
+  @@index([userId, status])
+  @@map("payments")
+}
+
+model StripeEvent {
+  id              String   @id @default(cuid())
+  provider        String   @default("stripe")
+  providerEventId String   @unique
+  type            String
+  action          String?
+  userId          String?
+  credits         Int?
+  grantKey        String?
+  payload         Json?
+  meta            Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([grantKey])
+  @@map("stripe_events")
+}
+
+model CreditGrant {
+  id        String   @id @default(cuid())
+  provider  String   @default("stripe")
+  grantKey  String   @unique
+  eventId   String?
+  eventType String?
+  userId    String
+  planId    String
+  credits   Int
+  status    String
+  error     String?
+  meta      Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([eventId])
+  @@map("credit_grants")
+}
+
+model Invoice {
+  id        String        @id @default(cuid())
+  userId    String
+  paymentId String?
+  plan      String?
+  amount    Int
+  currency  String        @default("USD")
+  status    InvoiceStatus
+  pdfUrl    String?
+  createdAt DateTime      @default(now())
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payment   Payment?      @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@map("invoices")
+}
+
+model CreditAccount {
+  id        String         @id @default(cuid())
+  userId    String         @unique
+  balance   Int            @default(0)
+  reserved  Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger    CreditLedger[]
+
+  @@map("credit_accounts")
+}
+
+model CreditLedger {
+  id              String           @id @default(cuid())
+  creditAccountId String
+  type            CreditLedgerType
+  amount          Int
+  balanceBefore   Int
+  balanceAfter    Int
+  reservedBefore  Int
+  reservedAfter   Int
+  jobId           String?
+  paymentId       String?
+  meta            Json?
+  createdAt       DateTime         @default(now())
+  account         CreditAccount    @relation(fields: [creditAccountId], references: [id], onDelete: Cascade)
+  job             GenerationJob?   @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  payment         Payment?         @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([creditAccountId, type])
+  @@index([jobId])
+  @@index([paymentId])
+  @@map("credit_ledger")
+}
+
+model Project {
+  id          String           @id @default(cuid())
+  userId      String
+  teamId      String?
+  name        String
+  platform    String
+  status      ProjectStatus    @default(DRAFT)
+  product     Json
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team        Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  images      ProjectImage[]
+  analyses    ImageAnalysis[]
+  prompts     PromptVersion[]
+  jobs        GenerationJob[]
+  assets      GeneratedAsset[]
+  listingCopy ListingCopy?
+  exports     ExportPack[]
+
+  @@index([userId, status])
+  @@map("projects")
+}
+
+model ProjectImage {
+  id         String          @id @default(cuid())
+  projectId  String
+  kind       String
+  storageKey String
+  url        String
+  mimeType   String
+  createdAt  DateTime        @default(now())
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  analyses   ImageAnalysis[]
+
+  @@index([projectId, kind])
+  @@map("project_images")
+}
+
+model ImageAnalysis {
+  id        String        @id @default(cuid())
+  projectId String
+  imageId   String?
+  provider  String
+  model     String
+  facts     Json
+  strategy  Json
+  createdAt DateTime      @default(now())
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  image     ProjectImage? @relation(fields: [imageId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([imageId])
+  @@map("image_analysis")
+}
+
+model PromptVersion {
+  id        String   @id @default(cuid())
+  projectId String
+  version   Int
+  platform  String
+  prompts   Json
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, version])
+  @@map("prompt_versions")
+}
+
+model GenerationJob {
+  id           String           @id @default(cuid())
+  projectId    String
+  type         GenerationType
+  status       JobStatus        @default(QUEUED)
+  provider     String?
+  model        String?
+  creditAmount Int
+  input        Json
+  output       Json?
+  error        String?
+  retryCount   Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ledger       CreditLedger[]
+  assets       GeneratedAsset[]
+
+  @@index([projectId, status])
+  @@map("generation_jobs")
+}
+
+model GeneratedAsset {
+  id         String         @id @default(cuid())
+  projectId  String
+  jobId      String?
+  type       String
+  label      String
+  storageKey String
+  url        String
+  provider   String
+  prompt     String
+  createdAt  DateTime       @default(now())
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  job        GenerationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, type])
+  @@index([jobId])
+  @@map("generated_assets")
+}
+
+model ListingCopy {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  title       String
+  bullets     Json
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("listing_copy")
+}
+
+model ExportPack {
+  id         String   @id @default(cuid())
+  projectId  String
+  storageKey String
+  url        String
+  assetCount Int
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("exports")
+}
+
+model ProviderConfig {
+  id         String   @id @default(cuid())
+  provider   String
+  mode       String
+  baseUrl    String
+  textModel  String
+  imageModel String
+  isActive   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([provider, isActive])
+  @@map("provider_configs")
+}
+
+model ApiKey {
+  id         String     @id @default(cuid())
+  userId     String
+  name       String
+  prefix     String
+  hash       String     @unique
+  revokedAt  DateTime?
+  createdAt  DateTime   @default(now())
+  lastUsedAt DateTime?
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  usage      ApiUsage[]
+
+  @@index([userId, revokedAt])
+  @@map("api_keys")
+}
+
+model ApiUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  apiKeyId  String?
+  endpoint  String
+  units     Int
+  status    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey    ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([apiKeyId])
+  @@map("api_usage")
+}
+
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  type      String
+  message   String
+  meta      Json?
+  createdAt DateTime @default(now())
+  actor     User?    @relation("AdminActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@map("admin_audit_logs")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum TeamRole {
+  OWNER
+  MEMBER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum InvoiceStatus {
+  OPEN
+  PAID
+  VOID
+  UNCOLLECTIBLE
+}
+
+enum CreditLedgerType {
+  GRANT
+  RESERVE
+  CONSUME
+  REFUND
+  EXPIRE
+  ADMIN_ADJUST
+}
+
+enum ProjectStatus {
+  DRAFT
+  ANALYZED
+  GENERATED
+  EXPORTED
+  ARCHIVED
+}
+
+enum GenerationType {
+  IMAGE_ANALYSIS
+  PROMPT_GENERATION
+  IMAGE_GENERATION
+  IMAGE_QUALITY_REVIEW
+  LISTING_COPY_GENERATION
+  EXPORT_PACKAGING
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELED
+}
