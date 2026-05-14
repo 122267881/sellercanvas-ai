@@ -3,8 +3,19 @@
 const fs = require("fs");
 
 const requiredFiles = [
-  "apps/customer/README.md",
-  "apps/admin/README.md",
+  "index.html",
+  "admin.html",
+  "app.js",
+  "admin.js",
+  "server.js",
+  "styles.css",
+  "README.md",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+  "LICENSE",
+  ".env.example",
+  "Dockerfile",
+  "docker-compose.yml",
   "apps/api/README.md",
   "workers/ai/README.md",
   "packages/shared/src/platforms.js",
@@ -17,9 +28,13 @@ const requiredFiles = [
   "prisma/schema.prisma",
   "prisma/migrations/000001_billing_constraints/migration.sql",
   "prisma/migrations/000002_stripe_events_and_grants/migration.sql",
+  "prisma/migrations/000003_runtime_prisma_persistence/migration.sql",
+  "scripts/check-commercial-flow.js",
   "scripts/check-api.js",
+  "scripts/check-api-routes.js",
+  "scripts/check-api-v2-http.js",
   "scripts/check-prisma-adapters.js",
-  "legacy/README.md"
+  "scripts/check-prisma-runtime.js"
 ];
 
 const missing = requiredFiles.filter((file) => !fs.existsSync(file));
@@ -31,6 +46,8 @@ if (missing.length) {
 const schema = fs.readFileSync("prisma/schema.prisma", "utf8");
 const billingMigration = fs.readFileSync("prisma/migrations/000001_billing_constraints/migration.sql", "utf8");
 const stripeMigration = fs.readFileSync("prisma/migrations/000002_stripe_events_and_grants/migration.sql", "utf8");
+const readme = fs.readFileSync("README.md", "utf8");
+const gitignore = fs.readFileSync(".gitignore", "utf8");
 
 for (const token of [
   "model StripeEvent",
@@ -64,6 +81,25 @@ for (const token of [
   "credit_grants_grantKey_key"
 ]) {
   assertIncludes(stripeMigration, token, "stripe migration");
+}
+
+for (const token of [
+  "客户使用网站：`http://localhost:4173`",
+  "开发者管理后台：`http://localhost:4173/admin`",
+  "npm.cmd run check:commercial",
+  "http://localhost:4173/admin#/providers",
+  "http://localhost:4173/admin#/api"
+]) {
+  assertIncludes(readme, token, "README");
+}
+
+for (const token of [
+  ".env",
+  "data/",
+  "exports/",
+  "data/provider-secrets.json"
+]) {
+  assertIncludes(gitignore, token, ".gitignore");
 }
 
 const { getPlatform } = require("../packages/shared/src/platforms");
