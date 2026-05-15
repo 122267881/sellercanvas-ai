@@ -135,7 +135,7 @@ function shell(content) {
         <button class="ghost-button" data-action="test-provider">测试接口</button>
       </div>
     </aside>
-    <main class="main-shell">
+    <main class="main-shell admin-main-shell">
       <header class="topbar">
         <div>
           <p class="eyebrow">开发者管理系统</p>
@@ -302,7 +302,7 @@ function jobsPage() {
 function providerPage() {
   const provider = state.data.provider || {};
   return `
-    <section class="panel">
+    <section class="panel provider-config-panel">
       <div class="panel-header">
         <div>
           <p class="eyebrow">开发者专用</p>
@@ -330,7 +330,7 @@ function providerPage() {
         <label>状态<input value="${provider.ready ? "可用" : "未配置真实密钥"}" disabled /></label>
       </form>
     </section>
-    <section class="panel">
+    <section class="panel provider-status-panel">
       <div class="panel-header"><div><p class="eyebrow">当前配置</p><h2>服务端读取结果</h2></div></div>
       <div class="settings-grid">
         <label>Provider<input value="${h(provider.provider)}" disabled /></label>
@@ -427,7 +427,7 @@ function tablePage(title, subtitle, filterKey, placeholder, rows, renderRow) {
       </div>
       <input class="admin-search" value="${h(state.filters[filterKey] || "")}" placeholder="${h(placeholder)}" data-filter="${h(filterKey)}" />
     </section>
-    <section class="table-list">
+    <section class="table-list admin-table-list">
       ${rows.map(renderRow).join("") || empty("没有匹配数据", "换一个关键词再试。")}
     </section>
   `;

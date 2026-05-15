@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "prod": "node server.js",
-    "check": "node --check server.js && node --check app.js && node --check admin.js && node --check packages/shared/src/platforms.js && node --check packages/shared/src/creditPricing.js && node --check packages/billing/src/creditLedger.js && node --check packages/ai-core/src/promptDoctrine.js && node --check scripts/check-commercial-flow.js && node --check scripts/check-frontend-content.js && node scripts/check-frontend-content.js && node scripts/check-api.js && node scripts/check-prisma-adapters.js && node scripts/check-prisma-runtime.js && node scripts/check-api-routes.js && node scripts/check-api-v2-http.js",
+    "check": "node --check server.js && node --check app.js && node --check admin.js && node --check packages/shared/src/platforms.js && node --check packages/shared/src/creditPricing.js && node --check packages/billing/src/creditLedger.js && node --check packages/ai-core/src/promptDoctrine.js && node --check scripts/check-commercial-flow.js && node --check scripts/check-frontend-content.js && node --check scripts/check-ui-contract.js && node scripts/check-frontend-content.js && node scripts/check-ui-contract.js && node scripts/check-api.js && node scripts/check-prisma-adapters.js && node scripts/check-prisma-runtime.js && node scripts/check-api-routes.js && node scripts/check-api-v2-http.js",
     "check:commercial": "node scripts/check-commercial-flow.js",
     "check:api": "node scripts/check-api.js",
     "check:api-routes": "node scripts/check-api-routes.js",

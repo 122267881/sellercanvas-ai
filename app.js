@@ -143,7 +143,7 @@ function layout(content) {
         <button class="ghost-button" data-action="go-billing">升级方案</button>
       </div>
     </aside>
-    <main class="main-shell">
+    <main class="main-shell customer-main">
       <header class="topbar">
         <div>
           <p class="eyebrow">客户使用端</p>
@@ -335,7 +335,7 @@ function renderAnalysis(project) {
       ${sections
         .map(
           ([title, items]) => `
-            <div>
+            <div class="analysis-card">
               <strong>${title}</strong>
               <ul>${(items || []).map((item) => `<li>${h(item)}</li>`).join("")}</ul>
             </div>
@@ -354,7 +354,7 @@ function renderPromptCards(project) {
       ${prompts
         .map(
           (prompt) => `
-            <article class="prompt-card">
+            <article class="prompt-card compact-prompt">
               <div class="card-meta">${h(assetLabels[prompt.type] || prompt.type)} · ${h(prompt.ratio)}</div>
               <h3>${h(prompt.title)}</h3>
               <p>${h(truncate(prompt.prompt, 320))}</p>
