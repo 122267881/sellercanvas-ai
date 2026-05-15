@@ -31,6 +31,10 @@ const required = [
   ["admin.js", "请输入管理员密码"],
   ["styles.css", ".auth-shell"],
   ["styles.css", ".main-shell"],
+  ["styles.css", "Premium AI workbench visual system"],
+  ["styles.css", ".main-shell::before"],
+  ["styles.css", ".admin-sidebar-clean"],
+  ["styles.css", ".pricing-card.featured"],
 ];
 
 let failed = false;
