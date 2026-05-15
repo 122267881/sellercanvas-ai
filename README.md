@@ -112,6 +112,14 @@ npm.cmd start
 npm.cmd run check
 ```
 
+前端文案和入口检查：
+
+```powershell
+node scripts/check-frontend-content.js
+```
+
+这个脚本会检查客户站、开发者后台、挂载节点、中文文案、API 配置入口隔离，以及客户站是否误用前端 Bearer Token。
+
 商业闭环验收。需要先启动服务：
 
 ```powershell

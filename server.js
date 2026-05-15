@@ -1596,7 +1596,18 @@ async function api(req, res, pathname) {
       if (!requireUser(res, user)) return;
       const body = await readBody(req);
       const template = templates.find((item) => item.id === body.templateId) || templates[0];
-      const project = buildProject({ ...template, ...(body.product || {}), ownerId: user.id }, body.name || "Untitled Listing Kit");
+      const product = body.product || {};
+      const project = buildProject({
+        ...template,
+        ...product,
+        platform: body.platform || product.platform || template.platform,
+        category: product.category || body.category || template.category,
+        material: product.material || body.material || template.material,
+        style: product.style || body.style || template.style,
+        points: product.points || body.keywords || template.points,
+        ownerId: user.id
+      }, body.name || "Untitled Listing Kit");
+      project.platform = body.platform || product.platform || project.platform;
       db.projects.unshift(project);
       if (apiV2Context.prisma) await upsertPrismaProject(apiV2Context.prisma, project, db);
       log(db, "project", `创建项目：${project.name}`);
