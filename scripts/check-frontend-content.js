@@ -63,5 +63,16 @@ if (appContent.includes("sc_token") || appContent.includes("Authorization")) {
   console.error("[frontend-content] customer app must use HttpOnly cookie sessions, not localStorage bearer tokens.");
 }
 
+if (appContent.includes("platform.safeZone") || appContent.includes("platform.imageSize")) {
+  failed = true;
+  console.error("[frontend-content] platform specs must use server fields: ratio, size, and rule.");
+}
+
+const cssContent = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+if (!cssContent.includes("Readability and workflow repair after visual QA")) {
+  failed = true;
+  console.error("[frontend-content] missing readability repair layer.");
+}
+
 if (failed) process.exit(1);
 console.log("Frontend content OK");

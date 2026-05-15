@@ -48,6 +48,10 @@ const currentPlan = () => state.data?.plans?.find((plan) => plan.id === state.us
 const platformById = (id) => state.data?.platforms?.find((platform) => platform.id === id);
 const invoiceForPayment = (paymentId) =>
   state.data?.invoices?.find((invoice) => invoice.paymentId === paymentId);
+const truncate = (value, limit = 260) => {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
+};
 const promptEntries = (project) =>
   Object.entries(project.prompts || {}).map(([type, prompt]) => ({
     type,
@@ -262,7 +266,7 @@ function renderDashboard() {
               (platform) => `
                 <div>
                   <strong>${h(platform.name)}</strong>
-                  <span>${h(platform.ratio)} · ${h(platform.safeZone)} · ${h(platform.imageSize)}</span>
+                  <span>${h(platform.ratio)} · ${h(platform.size)} · ${h(platform.rule)}</span>
                 </div>
               `,
             )
@@ -353,7 +357,7 @@ function renderPromptCards(project) {
             <article class="prompt-card">
               <div class="card-meta">${h(assetLabels[prompt.type] || prompt.type)} · ${h(prompt.ratio)}</div>
               <h3>${h(prompt.title)}</h3>
-              <p>${h(prompt.prompt)}</p>
+              <p>${h(truncate(prompt.prompt, 320))}</p>
               <small>${h(prompt.negativePrompt || "")}</small>
             </article>
           `,
